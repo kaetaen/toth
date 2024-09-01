@@ -9,50 +9,74 @@ import (
 	"golang.design/x/clipboard"
 )
 
-const FILE_PREFIX = "*.png"
+func getImage() ([]byte, bool) {
+	imgByte := clipboard.Read(clipboard.FmtImage)
+	imgNotFound := false
 
-func main() {
+	if len(imgByte) == 0 {
+		imgNotFound = true
+	}
+	return imgByte, imgNotFound
+}
+
+func createTmpImg(img []byte) *os.File {
+	FILE_PREFIX := "*.png"
 	USER_DIR, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	tmpFile, err := os.CreateTemp(USER_DIR, FILE_PREFIX)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if _, err := tmpFile.Write(img); err != nil {
+		log.Fatal(err)
+	}
+	tmpFile.Close()
+
+	return tmpFile
+}
+
+func tesseractOCRProcessor(imgFile *os.File) string {
+	tesseractClient := gosseract.NewClient()
+	tesseractClient.SetImage(imgFile.Name())
+
+	extractedText, err := tesseractClient.Text()
+	if (err) != nil {
+		panic(err)
+	}
+
+	tesseractClient.Close()
+	return extractedText
+}
+
+func ExtractTextFromImgClipboard() {
 	for {
 		err := clipboard.Init()
 		if err != nil {
 			panic(err)
 		}
 
-		copiedImgByte := clipboard.Read(clipboard.FmtImage)
-		if len(copiedImgByte) == 0 {
+		copiedImgByte, imgNotFound := getImage()
+		if imgNotFound {
 			log.Println("No image found on clipboard.")
 			continue
 		}
 
-		tmpFile, err := os.CreateTemp(USER_DIR, FILE_PREFIX)
-		if err != nil {
-			log.Fatal(err)
-		}
+		tmpImg := createTmpImg(copiedImgByte)
+		imgText := tesseractOCRProcessor(tmpImg)
 
-		if _, err := tmpFile.Write(copiedImgByte); err != nil {
-			log.Fatal(err)
-		}
-		tmpFile.Close()
+		clipboard.Write(clipboard.FmtText, []byte(imgText))
 
-		tesseractClient := gosseract.NewClient()
+		beeep.Notify("✅ Your text is ready", "📋 Just paste", tmpImg.Name())
 
-		tesseractClient.SetImage(tmpFile.Name())
-		extractedText, err := tesseractClient.Text()
-		if (err) != nil {
-			panic(err)
-		}
-
-		clipboard.Write(clipboard.FmtText, []byte(extractedText))
-
-		beeep.Notify("✅ Your text is ready", "📋 Just paste", tmpFile.Name())
-
-		tesseractClient.Close()
-		os.Remove(tmpFile.Name())
+		os.Remove(tmpImg.Name())
 	}
 
+}
+
+func main() {
+	ExtractTextFromImgClipboard()
 }
